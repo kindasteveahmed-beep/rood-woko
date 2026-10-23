@@ -1,0 +1,69 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Preparer le site web
+        run: |
+          mkdir www
+          cp index.html manifest.webmanifest sw.js icon-192.png icon-512.png icon-maskable-512.png www/
+
+      - name: Creer le projet Android (Capacitor)
+        run: |
+          npm init -y
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap init "Rood Woko" com.roodwoko.boutique --web-dir www
+          npx cap add android
+
+      - name: Icone de l'application (facultatif)
+        continue-on-error: true
+        run: |
+          mkdir -p assets
+          cp icon-1024.png assets/icon.png
+          npm install --no-save @capacitor/assets@3
+          npx capacitor-assets generate --android --iconBackgroundColor "#0f6b5c" --iconBackgroundColorDark "#0f6b5c"
+
+      - name: Synchroniser
+        run: npx cap sync android
+
+      - name: Cle de signature fixe (pour pouvoir mettre a jour sans perdre les donnees)
+        run: |
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore
+
+      - name: Construire l'APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rood-woko-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Rood Woko APK ${{ github.run_number }}
+          files: android/app/build/outputs/apk/debug/app-debug.apk
