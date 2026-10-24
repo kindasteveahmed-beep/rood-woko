@@ -91,7 +91,7 @@ function render(){
   '<div class="card"><div class="k">À recevoir (crédits)</div><div class="v">'+fmt(rec)+'</div></div>'+
   '<div class="card"><div class="k">Commandes en cours</div><div class="v">'+oc+'</div></div></div>'+
   (av>0?'<div class="card"><div class="k">Avances reçues restant à livrer</div><div class="v">'+fmt(av)+'</div></div>':"")+
-  '<div class="grid"><div class="card"><div class="k">Dû aux fournisseurs</div><div class="v neg">'+fmt(fo)+'</div></div><div class="card"><div class="k">Stock bas</div><div class="v">'+ls+' article(s)</div></div></div><button class="btn" id="bk">Sauvegarder</button><button class="btn" id="rs">Restaurer</button><p class="sub">Les données sont enregistrées sur cet appareil. Pense à sauvegarder de temps en temps.</p>';
+  '<div class="grid"><div class="card"><div class="k">Dû aux fournisseurs</div><div class="v neg">'+fmt(fo)+'</div></div><div class="card"><div class="k">Stock bas</div><div class="v">'+ls+' article(s)</div></div></div><button class="btn" id="bk">Sauvegarder</button><button class="btn" id="rs">Restaurer</button>'+(fbU?'<button class="btn" id="lo">Se déconnecter ('+esc(fbU.email)+')</button>':"")+'<p class="sub">Les données sont enregistrées sur cet appareil. Pense à sauvegarder de temps en temps.</p>';
  } else {
   if(tab=="stk")h+=stkHead();var L=(tab=="stk"&&sv=="mov"?S.mov:S[tab]).slice().reverse();
   if(!L.length)h='<div class="empty">Rien pour l’instant.<br>Appuie sur « + Ajouter ».</div>';
@@ -122,6 +122,7 @@ function item(x){
 document.getElementById("main").onclick=function(e){
  var b=e.target.closest("button");if(!b)return;var d=b.dataset;
  if(b.id=="bk"){var t=JSON.stringify(S);try{navigator.clipboard.writeText(t).then(function(){alert("Données copiées. Colle-les dans une note ou un message WhatsApp pour les garder.")},function(){prompt("Copie ce texte :",t)})}catch(err){prompt("Copie ce texte :",t)}return}
+ if(b.id=="lo"){if(confirm("Se déconnecter ? Tes données restent sur ce téléphone.")){fbU=null;cdoc=null;try{localStorage.removeItem(FBA)}catch(e){}stat("local");render()}return}
  if(b.id=="rs"){var r=prompt("Colle ici les données sauvegardées :");if(r){try{S=Object.assign({cur:"FCFA",sales:[],exp:[],ord:[],deb:[],sup:[],stk:[],mov:[]},JSON.parse(r));save();render()}catch(err){alert("Données invalides.")}}return}
  function find(id){return S[tab].filter(function(x){return x.id==id})[0]}
  if(d.del){if(confirm("Supprimer cet élément ?")){S[tab]=S[tab].filter(function(x){return x.id!=d.del});save();render()}}
@@ -163,11 +164,46 @@ function submit(){
 }
 var cdoc=null,ctimer=null;
 function stat(t){var e=document.getElementById("cl");if(e)e.textContent={local:"📱 Sur cet appareil",ok:"☁ Synchronisé",busy:"☁ Envoi…",err:"⚠ Erreur de synchro"}[t]}
-function push(){if(!cdoc)return;stat("busy");clearTimeout(ctimer);ctimer=setTimeout(function(){cdoc.set({data:JSON.stringify(S),updated:S.updated||0}).then(function(){stat("ok")},function(){stat("err")})},1200)}
-function pull(){if(!cdoc)return;stat("busy");cdoc.get().then(function(s){var r=s.exists?s.data():null;if(r&&(r.updated||0)>(S.updated||0)){try{S=Object.assign({cur:"FCFA",sales:[],exp:[],ord:[],deb:[],sup:[],stk:[],mov:[]},JSON.parse(r.data));try{localStorage.setItem("boutique_v1",JSON.stringify(S))}catch(e){}render()}catch(e){}stat("ok")}else if(!r||(S.updated||0)>(r.updated||0)){push()}else{stat("ok")}},function(){stat("err")})}
-(async function(){try{if(!window.claude||!window.claude.use)return;var db=await window.claude.use("db"),u=await window.claude.use("user");if(!db||!u)return;var id=await u.id();if(!id)return;cdoc=db.doc("data/users/"+id+"/boutique");pull()}catch(e){stat("err")}})();
+function push(){if(!cdoc)return;stat("busy");clearTimeout(ctimer);ctimer=setTimeout(function(){cdoc.set({data:JSON.stringify(S),updated:S.updated||0}).then(function(){stat("ok")},ferr)},1200)}
+function pull(){if(!cdoc)return;stat("busy");cdoc.get().then(function(s){var r=s.exists?s.data():null;if(r&&(r.updated||0)>(S.updated||0)){try{S=Object.assign({cur:"FCFA",sales:[],exp:[],ord:[],deb:[],sup:[],stk:[],mov:[]},JSON.parse(r.data));try{localStorage.setItem("boutique_v1",JSON.stringify(S))}catch(e){}render()}catch(e){}stat("ok")}else if(!r||(S.updated||0)>(r.updated||0)){push()}else{stat("ok")}},ferr)}
+
+var FBK="rw_fb",FBA="rw_auth",fbU=null;
+function fbcfg(){return{apiKey:"AIzaSyDnnZlastYgr1Tm8PuZOL25APWfajEilAw",projectId:"rood-woko-403be"}}
+function fbauth(){try{return JSON.parse(localStorage.getItem(FBA)||"null")}catch(e){return null}}
+function saveAuth(){try{localStorage.setItem(FBA,JSON.stringify(fbU))}catch(e){}}
+function ferr(e){stat("err");var c=e&&(e.status||(e.error&&e.error.code));if(c==403&&!window.__fa){window.__fa=1;alert("Accès refusé : vérifie les règles Firestore (étape 4 du guide).")}}
+function fbSign(mode,email,pw){var c=fbcfg();return fetch("https://identitytoolkit.googleapis.com/v1/accounts:"+(mode=="new"?"signUp":"signInWithPassword")+"?key="+encodeURIComponent(c.apiKey),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,password:pw,returnSecureToken:true})}).then(function(r){return r.json().then(function(j){if(!r.ok)throw j;fbU={email:email,uid:j.localId,tok:j.idToken,rt:j.refreshToken,exp:Date.now()+(+j.expiresIn-60)*1000};saveAuth();return fbU})})}
+function fbTok(){if(!fbU)return Promise.reject({});if(Date.now()<fbU.exp)return Promise.resolve(fbU.tok);var c=fbcfg();return fetch("https://securetoken.googleapis.com/v1/token?key="+encodeURIComponent(c.apiKey),{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(fbU.rt)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw j;fbU.tok=j.id_token;fbU.rt=j.refresh_token||fbU.rt;fbU.exp=Date.now()+(+j.expires_in-60)*1000;saveAuth();return fbU.tok})})}
+function fbDoc(){var c=fbcfg(),url="https://firestore.googleapis.com/v1/projects/"+encodeURIComponent(c.projectId)+"/databases/(default)/documents/boutiques/"+fbU.uid;
+ return{get:function(){return fbTok().then(function(t){return fetch(url,{headers:{Authorization:"Bearer "+t}})}).then(function(r){if(r.status==404)return{exists:false};return r.json().then(function(j){if(!r.ok)throw j;var f=j.fields||{};return{exists:true,data:function(){return{data:f.data&&f.data.stringValue,updated:f.updated?+f.updated.integerValue:0}}}})})},
+ set:function(o){return fbTok().then(function(t){return fetch(url,{method:"PATCH",headers:{Authorization:"Bearer "+t,"Content-Type":"application/json"},body:JSON.stringify({fields:{data:{stringValue:o.data},updated:{integerValue:String(o.updated)}}})})}).then(function(r){if(!r.ok)throw r})}}}
+function fbStart(){var a=fbauth(),c=fbcfg();if(a&&c&&a.rt){fbU=a;cdoc=fbDoc();pull()}else stat("local")}
+function fbErr(e){if(e instanceof TypeError)return "Pas de connexion internet.";var m=(e&&e.error&&e.error.message)||"";
+ if(/API_KEY|API key/i.test(m)){try{localStorage.removeItem(FBK)}catch(x){}return "Clé API invalide. Ferme et rouvre cette fenêtre pour la saisir à nouveau."}
+ if(/EMAIL_EXISTS/.test(m))return "Ce compte existe déjà : touche « Se connecter ».";
+ if(/INVALID_LOGIN|INVALID_PASSWORD|EMAIL_NOT_FOUND/.test(m))return "Adresse ou mot de passe incorrect.";
+ if(/WEAK_PASSWORD/.test(m))return "Mot de passe trop court (6 caractères minimum).";
+ if(/OPERATION_NOT_ALLOWED/.test(m))return "Active « E-mail/Mot de passe » dans Firebase → Authentication.";
+ if(/INVALID_EMAIL/.test(m))return "Adresse e-mail invalide.";
+ return "Erreur : "+(m||"inconnue")}
+function fbLogin(){var c=fbcfg(),h='<h2 style="margin:0 0 4px;font-size:18px">Sauvegarder mes données en ligne</h2>';
+ if(!c)h+='<p class="sub">Une seule fois : colle les infos de ton projet Firebase.</p><label>Clé API (apiKey)</label><input id="fk" autocapitalize="off" autocorrect="off"><label>ID du projet (projectId)</label><input id="fp" autocapitalize="off" autocorrect="off">';
+ h+='<p class="sub">Connecte-toi avec ton adresse e-mail pour retrouver tes données sur tous tes appareils.</p><label>Adresse e-mail</label><input id="fe" type="email" autocapitalize="off"><label>Mot de passe (6 caractères minimum)</label><input id="fw" type="password"><p class="sub" id="fm"></p><button class="ok" id="fi">Se connecter</button><button class="btn" id="fn" style="width:100%;margin:10px 0 0;padding:12px">Créer mon compte (première fois)</button><button class="btn" id="fr" style="width:100%;margin:10px 0 0;padding:12px">Mot de passe oublié</button><button class="btn" id="fc" style="width:100%;margin:10px 0 0;padding:12px">Annuler</button>';
+ document.getElementById("form").innerHTML=h;document.getElementById("sheet").classList.add("show");
+ function msg(t){document.getElementById("fm").textContent=t}
+ function go(mode){var cf=fbcfg();
+  if(!cf){var k=document.getElementById("fk").value.trim(),p=document.getElementById("fp").value.trim();if(!k||!p){msg("Remplis la clé API et l’ID du projet.");return}cf={apiKey:k,projectId:p};try{localStorage.setItem(FBK,JSON.stringify(cf))}catch(x){}}
+  var em=document.getElementById("fe").value.trim(),pw=document.getElementById("fw").value;
+  if(!em||pw.length<6){msg("Indique ton adresse et un mot de passe de 6 caractères minimum.");return}
+  msg("Connexion…");
+  fbSign(mode,em,pw).then(function(){cdoc=fbDoc();closeSheet();pull();render()},function(e){msg(fbErr(e))})}
+ document.getElementById("fi").onclick=function(){go("in")};
+ document.getElementById("fn").onclick=function(){go("new")};
+ document.getElementById("fr").onclick=function(){var em=document.getElementById("fe").value.trim();if(!em){msg("Écris d’abord ton adresse e-mail ci-dessus.");return}msg("Envoi…");fetch("https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key="+encodeURIComponent(fbcfg().apiKey),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requestType:"PASSWORD_RESET",email:em})}).then(function(r){return r.json().then(function(j){if(!r.ok)throw j;msg("Un e-mail pour changer ton mot de passe a été envoyé (regarde aussi dans les spams).")})}).catch(function(e){msg(fbErr(e))})};
+ document.getElementById("fc").onclick=closeSheet}
+(async function(){try{if(window.claude&&window.claude.use){var db=await window.claude.use("db"),u=await window.claude.use("user");if(db&&u){var id=await u.id();if(id){cdoc=db.doc("data/users/"+id+"/boutique");pull();return}}}}catch(e){}fbStart()})();
 document.addEventListener("visibilitychange",function(){if(!document.hidden)pull()});
-document.getElementById("cl").onclick=function(){if(cdoc)pull();else alert("La synchronisation en ligne n’existe que dans la version ouverte depuis ton compte Claude. Ici, tes données restent sur ce téléphone : utilise Sauvegarder / Restaurer sur l’accueil.")};
+document.getElementById("cl").onclick=function(){if(cdoc){pull();return}fbLogin()};
 document.getElementById("cfg").onclick=function(){var c=prompt("Devise (ex : FCFA, €, $, DH) :",S.cur);if(c!==null&&c.trim()){S.cur=c.trim();save();render()}};
 if("serviceWorker" in navigator&&!window.Capacitor&&location.protocol.indexOf("http")==0){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})})}
 render();
